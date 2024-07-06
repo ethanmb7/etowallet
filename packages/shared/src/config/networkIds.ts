@@ -50,7 +50,7 @@ export type INetworkShortCode =
   | 'lightning'
   | 'ltc'
   | 'trx'
-  | 'neurai'
+  | 'xna'
   | 'sepolia'
   | 'mantle'
   | 'mantapacific'
