@@ -196,7 +196,6 @@ const RenderNoSearchResult = () => {
 
 type IAddressBookListContentProps = {
   items: IAddressNetworkItem[];
-  onContentSizeChange?: ((w: number, h: number) => void) | undefined;
   showActions?: boolean;
   onPressItem?: (item: IAddressItem) => void;
   hideEmptyAddButton?: boolean;
@@ -204,7 +203,6 @@ type IAddressBookListContentProps = {
 
 export const AddressBookListContent = ({
   items,
-  onContentSizeChange,
   showActions,
   onPressItem,
   hideEmptyAddButton,
@@ -311,6 +309,7 @@ export const AddressBookListContent = ({
         title: item.title,
         data: isFold ? [] : data,
         isFold,
+        key: item.title,
       };
     });
   }, [foldItems, items, searchKey]);
@@ -335,13 +334,17 @@ export const AddressBookListContent = ({
       </Stack>
       <NativeSectionList
         showsVerticalScrollIndicator={false}
-        onContentSizeChange={onContentSizeChange}
         // estimatedItemSize={estimatedItemSize}
         sections={memoSections}
         renderSectionHeader={renderSectionHeader}
         renderItem={renderItem}
         SectionSeparatorComponent={null}
         windowSize={40}
+        // getItemLayout={(data: any, index: number) => ({
+        //   length: 80,
+        //   offset: 80 * index,
+        //   index,
+        // })}
         ListEmptyComponent={
           items.length ? (
             RenderNoSearchResult
