@@ -8,6 +8,7 @@ import {
   ActionList,
   Empty,
   IconButton,
+  NativeSectionList,
   SearchBar,
   SectionList,
   SizableText,
@@ -233,7 +234,6 @@ export const AddressBookListContent = ({
       section: {
         title: string;
         data: IAddressNetworkExtendMatch[];
-        index: number;
         isFold?: boolean;
       };
     }) =>
@@ -270,7 +270,7 @@ export const AddressBookListContent = ({
     ),
     [showActions, onPressItem],
   );
-  const memoSections = useMemo(() => {
+  const memoSections = useMemo<ISectionItem[]>(() => {
     let sections: ISectionItem[] = [];
     if (searchKey) {
       const exactMatch = (match: IFuseResultMatch) => {
@@ -333,14 +333,15 @@ export const AddressBookListContent = ({
           onChangeText={(text) => setSearchKey(text)}
         />
       </Stack>
-      <SectionList
+      <NativeSectionList
         showsVerticalScrollIndicator={false}
         onContentSizeChange={onContentSizeChange}
-        estimatedItemSize={estimatedItemSize}
+        // estimatedItemSize={estimatedItemSize}
         sections={memoSections}
         renderSectionHeader={renderSectionHeader}
         renderItem={renderItem}
         SectionSeparatorComponent={null}
+        windowSize={40}
         ListEmptyComponent={
           items.length ? (
             RenderNoSearchResult
