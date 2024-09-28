@@ -137,6 +137,7 @@ class ServiceDiscovery extends ServiceBase {
         attackTypes: [],
         phishingSite: false,
         alert: '',
+        projectName: url,
       } as IHostSecurity;
     }
     try {
@@ -151,6 +152,7 @@ class ServiceDiscovery extends ServiceBase {
         alert: appLocale.intl.formatMessage({
           id: ETranslations.feedback_risk_detection_timed_out,
         }),
+        projectName: url,
       } as IHostSecurity;
     }
   }
