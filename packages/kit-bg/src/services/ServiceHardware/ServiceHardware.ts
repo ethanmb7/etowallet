@@ -289,6 +289,7 @@ class ServiceHardware extends ServiceBase {
         const originEvent = e as UiEvent;
         const { type: uiRequestType, payload } = e;
         // console.log('=>>>> UI_EVENT: ', uiRequestType, payload);
+        defaultLogger.hardware.sdkLog.uiEvent(uiRequestType, payload);
 
         const { device, type: eventType, passphraseState } = payload || {};
         const { deviceType, connectId, deviceId, features } = device || {};
@@ -329,6 +330,11 @@ class ServiceHardware extends ServiceBase {
             EHardwareUiStateAction.PREVIOUS_ADDRESS,
           ].includes(newUiRequestType)
         ) {
+          defaultLogger.hardware.sdkLog.updateHardwareUiStateAtom({
+            action: newUiRequestType,
+            connectId,
+            payload: newPayload,
+          });
           // show hardware ui dialog
           await hardwareUiStateAtom.set({
             action: newUiRequestType,

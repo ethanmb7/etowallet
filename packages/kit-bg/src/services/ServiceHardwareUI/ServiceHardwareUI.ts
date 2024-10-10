@@ -28,11 +28,11 @@ import type { IHardwareUiPayload } from '../../states/jotai/atoms';
 import type { UiResponseEvent } from '@onekeyfe/hd-core';
 
 export type IWithHardwareProcessingControlParams = {
-  skipDeviceCancel?: boolean;
-  skipCloseHardwareUiStateDialog?: boolean;
+  hideCheckingDeviceLoading?: boolean;
+  skipDeviceCancel?: boolean; // cancel device at end
+  skipCloseHardwareUiStateDialog?: boolean; // close state dialog at end
   skipDeviceCancelAtFirst?: boolean;
   skipWaitingAnimationAtFirst?: boolean;
-  hideCheckingDeviceLoading?: boolean;
 };
 
 export type IWithHardwareProcessingOptions = {
@@ -44,6 +44,7 @@ export type ICloseHardwareUiStateDialogParams = {
   skipDeviceCancel?: boolean;
   delay?: number;
   connectId: string | undefined;
+  walletId?: string;
   reason?: string;
   deviceResetToHome?: boolean;
   hardClose?: boolean; // hard close dialog by event bus
@@ -164,16 +165,42 @@ class ServiceHardwareUI extends ServiceBase {
     }
   }
 
+  closeHardwareUiStateDialogTimer: ReturnType<typeof setTimeout> | undefined;
+
   @backgroundMethod()
-  async closeHardwareUiStateDialog({
-    skipDeviceCancel,
-    delay,
-    connectId,
-    reason,
-    deviceResetToHome = true,
-    hardClose,
-  }: ICloseHardwareUiStateDialogParams) {
+  async closeHardwareUiStateDialog(params: ICloseHardwareUiStateDialogParams) {
+    clearTimeout(this.closeHardwareUiStateDialogTimer);
+
+    this.closeHardwareUiStateDialogTimer = setTimeout(
+      () => this.closeHardwareUiStateDialogFn(params),
+      600,
+    );
+
+    await this.closeHardwareUiStateDialogFn(params);
+  }
+
+  @backgroundMethod()
+  async closeHardwareUiStateDialogFn(
+    params: ICloseHardwareUiStateDialogParams,
+  ) {
+    let {
+      skipDeviceCancel,
+      delay,
+      connectId,
+      walletId,
+      reason,
+      deviceResetToHome = true,
+      hardClose,
+    } = params;
+
     try {
+      if (!connectId && walletId) {
+        const device =
+          await this.backgroundApi.serviceAccount.getWalletDeviceSafe({
+            walletId,
+          });
+        connectId = device?.connectId;
+      }
       console.log(`closeHardwareUiStateDialog: ${reason || 'no reason'}`);
       if (delay) {
         await timerUtils.wait(delay);
@@ -199,6 +226,7 @@ class ServiceHardwareUI extends ServiceBase {
     fn: () => Promise<T>,
     params: IWithHardwareProcessingOptions,
   ): Promise<T> {
+    clearTimeout(this.closeHardwareUiStateDialogTimer);
     const {
       deviceParams,
       skipDeviceCancel,
@@ -208,6 +236,7 @@ class ServiceHardwareUI extends ServiceBase {
       hideCheckingDeviceLoading,
       debugMethodName,
     } = params;
+    defaultLogger.hardware.sdkLog.consoleLog('withHardwareProcessing');
     defaultLogger.account.accountCreatePerf.withHardwareProcessingStart(params);
 
     // >>> mock hardware connectId
@@ -227,12 +256,13 @@ class ServiceHardwareUI extends ServiceBase {
       message: 'cancelableDelay',
     });
 
-    // TODO: Dialog 和 Toast 在执行 show ，但是动画未结束时，立即调用 close 无效，将导致 Dialog 和 Toast 一直显示
+    // Dialog 和 Toast 在执行 show ，但是动画未结束时，立即调用 close 无效，将导致 Dialog 和 Toast 一直显示
     // wait action animation done
     // action dialog may call getFeatures of the hardware when it is closed
-    if (connectId && !skipWaitingAnimationAtFirst) {
-      await this.hardwareProcessingManager.cancelableDelay(connectId, 350);
-    }
+    // if (connectId && !skipWaitingAnimationAtFirst) {
+    //   await this.hardwareProcessingManager.cancelableDelay(connectId, 350);
+    // }
+
     defaultLogger.account.accountCreatePerf.cancelDeviceBeforeProcessingDone({
       message: 'cancelableDelay',
     });
