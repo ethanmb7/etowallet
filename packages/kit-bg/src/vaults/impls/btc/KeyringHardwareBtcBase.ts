@@ -46,6 +46,122 @@ import type { HDNodeType, Messages } from '@onekeyfe/hd-transport';
 export abstract class KeyringHardwareBtcBase extends KeyringHardwareBase {
   abstract override coreApi: CoreChainSoftwareBtc | undefined;
 
+  override buildPrepareAccountsPrefixedPath(
+    params: IBuildPrepareAccountsPrefixedPathParams,
+  ): string {
+    const fullPath = accountUtils.buildPathFromTemplate({
+      template: params.template,
+      index: params.index,
+    });
+    return accountUtils.removePathLastSegment({
+      path: fullPath,
+      removeCount: 2,
+    });
+  }
+
+  async prepareAccounts2(
+    params: IPrepareHardwareAccountsParams,
+  ): Promise<IDBAccount[]> {
+    const networkInfo = await this.getCoreApiNetworkInfo();
+    const network = getBtcForkNetwork(networkInfo.networkChainCode);
+    const addressEncoding = params.deriveInfo?.addressEncoding;
+    const addressRelPath = accountUtils.buildUtxoAddressRelPath();
+
+    return this.basePrepareHdUtxoAccounts(params, {
+      checkIsAccountUsed: checkBtcAddressIsUsed,
+      buildAddressesInfo: async ({ usedIndexes }) => {
+        const publicKeys = await this.baseGetDeviceAccountPublicKeys({
+          params,
+          usedIndexes,
+          sdkGetPublicKeysFn: async ({
+            connectId,
+            deviceId,
+            template,
+            coinName,
+            showOnOnekeyFn,
+          }) => {
+            const buildFullPath = (p: { index: number }) =>
+              accountUtils.buildPathFromTemplate({
+                template,
+                index: p.index,
+              });
+            const buildPrefixedPath = (p: { index: number }) =>
+              this.buildPrepareAccountsPrefixedPath({
+                template,
+                index: p.index,
+              });
+
+            const allNetworkAccounts = await this.getAllNetworkPrepareAccounts({
+              params,
+              usedIndexes,
+              hwSdkNetwork: this.hwSdkNetwork,
+              buildPath: buildPrefixedPath,
+              buildResultAccount: ({ account, index }) => ({
+                path: account.path,
+                xpub: account.payload?.xpub || '',
+                xpubSegwit: account.payload?.xpubSegwit || '',
+                node: account.payload?.node || ({} as HDNodeType),
+              }),
+            });
+            if (allNetworkAccounts) {
+              return allNetworkAccounts;
+            }
+            throw new Error('use sdk allNetworkGetAddress instead');
+
+            // const sdk = await this.getHardwareSDKInstance();
+            // defaultLogger.account.accountCreatePerf.sdkBtcGetPublicKey();
+            // const response = await sdk.btcGetPublicKey(connectId, deviceId, {
+            //   ...params.deviceParams.deviceCommonParams, // passpharse params
+            //   bundle: usedIndexes.map((index, arrIndex) => ({
+            //     path: buildPrefixedPath({ index }),
+            //     coin: coinName?.toLowerCase(),
+            //     showOnOneKey: showOnOnekeyFn(arrIndex),
+            //   })),
+            // });
+            // defaultLogger.account.accountCreatePerf.sdkBtcGetPublicKeyDone({
+            //   deriveTypeLabel: params.deriveInfo?.label ?? '',
+            //   indexes: usedIndexes,
+            //   coinName,
+            // });
+            // return response;
+          },
+        });
+
+        const ret: ICoreApiGetAddressItem[] = [];
+        for (let i = 0; i < publicKeys.length; i += 1) {
+          const item = publicKeys[i];
+          const { path, xpub, xpubSegwit } = item;
+          if (!this.coreApi) {
+            throw new Error('coreApi is undefined');
+          }
+          const { addresses: addressFromXpub, publicKeys: publicKeysMap } =
+            await this.coreApi.getAddressFromXpub({
+              network,
+              xpub,
+              relativePaths: [addressRelPath],
+              addressEncoding,
+            });
+          const { [addressRelPath]: publicKey } = publicKeysMap;
+          const { [addressRelPath]: address } = addressFromXpub;
+
+          const addressInfo: ICoreApiGetAddressItem = {
+            address,
+            publicKey,
+            path,
+            relPath: addressRelPath,
+            xpub,
+            xpubSegwit,
+            addresses: {
+              [addressRelPath]: address,
+            },
+          };
+          ret.push(addressInfo);
+        }
+        return ret;
+      },
+    });
+  }
+
   async signTransaction(params: ISignTransactionParams): Promise<ISignedTxPro> {
     const { unsignedTx } = params;
 
@@ -61,7 +177,9 @@ export abstract class KeyringHardwareBtcBase extends KeyringHardwareBase {
     );
     const network = await this.getNetwork();
     const vault = this.vault as VaultBtc;
-    const coinName = await this.coreApi?.getCoinName({ network });
+    const coinName = await checkIsDefined(this.coreApi).getCoinName({
+      network,
+    });
     const addresses = inputs.map((input) => input.address);
     const { utxoList: utxosInfo } = await vault._collectUTXOsInfoByApi();
 
@@ -81,9 +199,6 @@ export abstract class KeyringHardwareBtcBase extends KeyringHardwareBase {
     const sdk = await this.getHardwareSDKInstance();
 
     const { connectId, deviceId } = dbDevice;
-    if (!coinName) {
-      throw new Error('coinName is undefined');
-    }
 
     const response = await sdk.btcSignTransaction(connectId, deviceId, {
       coin: coinName.toLowerCase(),
@@ -192,7 +307,9 @@ export abstract class KeyringHardwareBtcBase extends KeyringHardwareBase {
     }
 
     const network = await this.getNetwork();
-    const coinName = await this.coreApi?.getCoinName({ network });
+    const coinName = await checkIsDefined(this.coreApi).getCoinName({
+      network,
+    });
     const sdk = await this.getHardwareSDKInstance();
     const { dbDevice, deviceCommonParams } = checkIsDefined(
       params.deviceParams,
@@ -291,10 +408,9 @@ export abstract class KeyringHardwareBtcBase extends KeyringHardwareBase {
 
   async signMessage(params: ISignMessageParams): Promise<ISignedMessagePro> {
     const network = await this.getNetwork();
-    const coinName = await this.coreApi?.getCoinName({ network });
-    if (!coinName) {
-      throw new Error('coinName is undefined');
-    }
+    const coinName = await checkIsDefined(this.coreApi).getCoinName({
+      network,
+    });
     const dbAccount = await this.vault.getAccount();
     const deviceParams = checkIsDefined(params.deviceParams);
     const { connectId, deviceId } = deviceParams.dbDevice;
@@ -323,26 +439,12 @@ export abstract class KeyringHardwareBtcBase extends KeyringHardwareBase {
     return result.map((ret) => ret.signature);
   }
 
-  override buildPrepareAccountsPrefixedPath(
-    params: IBuildPrepareAccountsPrefixedPathParams,
-  ): string {
-    const fullPath = accountUtils.buildPathFromTemplate({
-      template: params.template,
-      index: params.index,
-    });
-    return accountUtils.removePathLastSegment({
-      path: fullPath,
-      removeCount: 2,
-    });
-  }
-
   override async prepareAccounts(
     params: IPrepareHardwareAccountsParams,
   ): Promise<IDBAccount[]> {
     const networkInfo = await this.getCoreApiNetworkInfo();
     const network = getBtcForkNetwork(networkInfo.networkChainCode);
     const addressEncoding = params.deriveInfo?.addressEncoding;
-    const addressRelPath = accountUtils.buildUtxoAddressRelPath();
 
     return this.basePrepareHdUtxoAccounts(params, {
       checkIsAccountUsed: checkBtcAddressIsUsed,
@@ -353,54 +455,26 @@ export abstract class KeyringHardwareBtcBase extends KeyringHardwareBase {
           sdkGetPublicKeysFn: async ({
             connectId,
             deviceId,
-            template,
+            pathPrefix,
             coinName,
             showOnOnekeyFn,
           }) => {
-            const buildFullPath = (p: { index: number }) =>
-              accountUtils.buildPathFromTemplate({
-                template,
-                index: p.index,
-              });
-            const buildPrefixedPath = (p: { index: number }) =>
-              this.buildPrepareAccountsPrefixedPath({
-                template,
-                index: p.index,
-              });
-
-            const allNetworkAccounts = await this.getAllNetworkPrepareAccounts({
-              params,
-              usedIndexes,
-              hwSdkNetwork: this.hwSdkNetwork,
-              buildPath: buildPrefixedPath,
-              buildResultAccount: ({ account, index }) => ({
-                path: account.path,
-                xpub: account.payload?.xpub || '',
-                xpubSegwit: account.payload?.xpubSegwit || '',
-                node: account.payload?.node || ({} as HDNodeType),
-              }),
+            const sdk = await this.getHardwareSDKInstance();
+            defaultLogger.account.accountCreatePerf.sdkBtcGetPublicKey();
+            const response = await sdk.btcGetPublicKey(connectId, deviceId, {
+              ...params.deviceParams.deviceCommonParams, // passpharse params
+              bundle: usedIndexes.map((index, arrIndex) => ({
+                path: `${pathPrefix}/${index}'`,
+                coin: coinName?.toLowerCase(),
+                showOnOneKey: showOnOnekeyFn(arrIndex),
+              })),
             });
-            if (allNetworkAccounts) {
-              return allNetworkAccounts;
-            }
-            throw new Error('use sdk allNetworkGetAddress instead');
-
-            // const sdk = await this.getHardwareSDKInstance();
-            // defaultLogger.account.accountCreatePerf.sdkBtcGetPublicKey();
-            // const response = await sdk.btcGetPublicKey(connectId, deviceId, {
-            //   ...params.deviceParams.deviceCommonParams, // passpharse params
-            //   bundle: usedIndexes.map((index, arrIndex) => ({
-            //     path: buildPrefixedPath({ index }),
-            //     coin: coinName?.toLowerCase(),
-            //     showOnOneKey: showOnOnekeyFn(arrIndex),
-            //   })),
-            // });
-            // defaultLogger.account.accountCreatePerf.sdkBtcGetPublicKeyDone({
-            //   deriveTypeLabel: params.deriveInfo?.label ?? '',
-            //   indexes: usedIndexes,
-            //   coinName,
-            // });
-            // return response;
+            defaultLogger.account.accountCreatePerf.sdkBtcGetPublicKeyDone({
+              deriveTypeLabel: params.deriveInfo?.label ?? '',
+              indexes: usedIndexes,
+              coinName,
+            });
+            return response;
           },
         });
 
@@ -408,11 +482,9 @@ export abstract class KeyringHardwareBtcBase extends KeyringHardwareBase {
         for (let i = 0; i < publicKeys.length; i += 1) {
           const item = publicKeys[i];
           const { path, xpub, xpubSegwit } = item;
-          if (!this.coreApi) {
-            throw new Error('coreApi is undefined');
-          }
+          const addressRelPath = accountUtils.buildUtxoAddressRelPath();
           const { addresses: addressFromXpub, publicKeys: publicKeysMap } =
-            await this.coreApi.getAddressFromXpub({
+            await checkIsDefined(this.coreApi).getAddressFromXpub({
               network,
               xpub,
               relativePaths: [addressRelPath],
